@@ -35,6 +35,7 @@
 #include "../timer.h"
 #include "../unit.h"
 
+#include "../async.h"
 
 char g_savegameDesc[5][51];                                 /*!< Array of savegame descriptions for the SaveLoad window. */
 static uint16 s_savegameIndexBase = 0;
@@ -567,70 +568,6 @@ static void GUI_Window_RestoreScreen(WindowDesc *desc)
 	GUI_Mouse_Show_Safe();
 }
 
-/**
- * Handles Click event for "Game controls" button.
- *
- * @param w The widget.
- */
-static void GUI_Widget_GameControls_Click(Widget *w)
-{
-	WindowDesc *desc = &g_gameControlWindowDesc;
-	bool loop;
-
-	GUI_Window_BackupScreen(desc);
-
-	GUI_Window_Create(desc);
-
-	loop = true;
-	while (loop) {
-		Widget *w2 = g_widgetLinkedListTail;
-		uint16 key = GUI_Widget_HandleEvents(w2);
-
-		if ((key & 0x8000) != 0) {
-			w = GUI_Widget_Get_ByIndex(w2, key & 0x7FFF);
-
-			switch ((key & 0x7FFF) - 0x1E) {
-				case 0:
-					g_gameConfig.music ^= 0x1;
-					if (g_gameConfig.music == 0) Driver_Music_Stop();
-					break;
-
-				case 1:
-					g_gameConfig.sounds ^= 0x1;
-					if (g_gameConfig.sounds == 0) Driver_Sound_Stop();
-					break;
-
-				case 2:
-					if (++g_gameConfig.gameSpeed >= 5) g_gameConfig.gameSpeed = 0;
-					break;
-
-				case 3:
-					g_gameConfig.hints ^= 0x1;
-					break;
-
-				case 4:
-					g_gameConfig.autoScroll ^= 0x1;
-					break;
-
-				case 5:
-					loop = false;
-					break;
-
-				default: break;
-			}
-
-			GUI_Widget_MakeNormal(w, false);
-
-			GUI_Widget_Draw(w);
-		}
-
-		GUI_PaletteAnimate();
-		sleepIdle();
-	}
-
-	GUI_Window_RestoreScreen(desc);
-}
-
 static void ShadeScreen()
 {
 	uint16 i;
@@ -683,18 +620,17 @@ static bool GUI_YesNo(uint16 stringID)
 
 	return ret;
 }
-/**
- * Handles Click event for "Options" button.
- *
- * @param w The widget.
- * @return False, always.
- */
-bool GUI_Widget_Options_Click(Widget *w)
-{
-	WindowDesc *desc = &g_optionsWindowDesc;
-	uint16 cursor = g_cursorSpriteID;
-	bool loop;
 
+typedef struct Async_GUI_Widget_Options_Click {
+	Widget *w;
+	uint16 cursor;
+	WindowDesc *desc;
+	bool loop;
+} Async_GUI_Widget_Options_Click;
+
+static Async_GUI_Widget_Options_Click asyncGUIWidgetOptionsClick;
+
+void AsyncGUI_Widget_Options_ClickOpen() {
 	g_cursorSpriteID = 0;
 
 	Sprites_SetMouseSprite(0, 0, g_sprites[0]);
@@ -711,79 +647,114 @@ bool GUI_Widget_Options_Click(Widget *w)
 
 	ShadeScreen();
 
-	GUI_Window_BackupScreen(desc);
+	GUI_Window_BackupScreen(asyncGUIWidgetOptionsClick.desc);
 
-	GUI_Window_Create(desc);
+	GUI_Window_Create(asyncGUIWidgetOptionsClick.desc);
 
-	loop = true;
+	asyncGUIWidgetOptionsClick.loop = true;
+}
 
-	while (loop) {
-		Widget *w2 = g_widgetLinkedListTail;
-		uint16 key = GUI_Widget_HandleEvents(w2);
+void AsyncGUI_Widget_Options_ClickCondition(bool *ref) {
+	*ref = asyncGUIWidgetOptionsClick.loop;
+}
 
-		if ((key & 0x8000) != 0) {
-			w = GUI_Widget_Get_ByIndex(w2, key);
+#if EMSCRIPTEN
+extern void	saveOnServer(const char* file);
+extern void selectSlot(void*());
+#else
+void selectSlot(void f(int slot)) {
+	f(1);
+}
+#endif
 
-			GUI_Window_RestoreScreen(desc);
+void _SaveGame(int slot) {
+	if (slot) {
+		char *file = GenerateSavegameFilename(slot);
+		SaveFile(file, "game");
+		#if EMSCRIPTEN
+			saveOnServer(file);
+		#endif
+	}
+}
 
-			switch ((key & 0x7FFF) - 0x1E) {
-				case 0:
-					if (GUI_Widget_SaveLoad_Click(false)) loop = false;
-					break;
+void _LoadGame(int slot) {
+	if (slot) {
+		char *file = GenerateSavegameFilename(slot);
+		LoadFile(file);
+	}
+}
 
-				case 1:
-					if (GUI_Widget_SaveLoad_Click(true)) loop = false;
-					break;
+void AsyncGUI_Widget_Options_ClickLoop() {
+	Widget *w2 = g_widgetLinkedListTail;
+	uint16 key = GUI_Widget_HandleEvents(w2);
 
-				case 2:
-					GUI_Widget_GameControls_Click(w);
-					break;
+	if ((key & 0x8000) != 0) {
+		asyncGUIWidgetOptionsClick.w = GUI_Widget_Get_ByIndex(w2, key);
 
-				case 3:
-					/* "Are you sure you wish to restart?" */
-					if (!GUI_YesNo(0x76)) break;
+		GUI_Window_RestoreScreen(asyncGUIWidgetOptionsClick.desc);
 
-					loop = false;
-					g_gameMode = GM_RESTART;
-					break;
+		switch ((key & 0x7FFF) - 0x1E) {
+			case 0:
+				selectSlot(_LoadGame);
+				asyncGUIWidgetOptionsClick.loop = false;
+				break;
 
-				case 4:
-					/* "Are you sure you wish to pick a new house?" */
-					if (!GUI_YesNo(0x77)) break;
+			case 1:
+				selectSlot(_SaveGame);
+				asyncGUIWidgetOptionsClick.loop = false;
+				break;
 
-					loop = false;
-					Driver_Music_FadeOut();
-					g_gameMode = GM_PICKHOUSE;
-					break;
+			case 2:
+				/*GUI_Widget_GameControls_Click(asyncGUIWidgetOptionsClick.w);*/
+				break;
 
-				case 5:
-					loop = false;
-					break;
+			case 3:
+				/* "Are you sure you wish to restart?" */
+				/*if (!GUI_YesNo(0x76)) break;*/
 
-				case 6:
-					/* "Are you sure you want to quit playing?" */
-					loop = !GUI_YesNo(0x65);
-					g_var_38F8 = loop;
+				asyncGUIWidgetOptionsClick.loop = false;
+				g_gameMode = GM_RESTART;
+				break;
 
-					Sound_Output_Feedback(0xFFFE);
+			case 4:
+				/* "Are you sure you wish to pick a new house?" */
+				/*if (!GUI_YesNo(0x77)) break;
 
-					while (Driver_Voice_IsPlaying()) sleepIdle();
-					break;
+				asyncGUIWidgetOptionsClick.loop = false;
+				Driver_Music_FadeOut();
+				g_gameMode = GM_PICKHOUSE;*/
+				break;
 
-				default: break;
-			}
+			case 5:
+				asyncGUIWidgetOptionsClick.loop = false;
+				break;
 
-			if (g_var_38F8 && loop) {
-				GUI_Window_BackupScreen(desc);
+			case 6:
+				/* "Are you sure you want to quit playing?" */
+				/*asyncGUIWidgetOptionsClick.loop = !GUI_YesNo(0x65);
+				g_var_38F8 = asyncGUIWidgetOptionsClick.loop;
 
-				GUI_Window_Create(desc);
-			}
+				Sound_Output_Feedback(0xFFFE);
+
+				while (Driver_Voice_IsPlaying()) sleepIdle();*/
+				break;
+
+			default:
+				break;
 		}
 
-		GUI_PaletteAnimate();
-		sleepIdle();
+		if (g_var_38F8 && asyncGUIWidgetOptionsClick.loop) {
+			GUI_Window_BackupScreen(asyncGUIWidgetOptionsClick.desc);
+
+			GUI_Window_Create(asyncGUIWidgetOptionsClick.desc);
+		}
 	}
 
+	GUI_PaletteAnimate();
+	sleepIdle();
+}
+
+void AsyncGUI_Widget_Options_ClickClose() {
 	g_textDisplayNeedsUpdate = true;
 
 	Sprites_LoadTiles();
@@ -791,7 +762,7 @@ bool GUI_Widget_Options_Click(Widget *w)
 
 	UnshadeScreen();
 
-	GUI_Widget_MakeSelected(w, false);
+	GUI_Widget_MakeSelected(asyncGUIWidgetOptionsClick.w, false);
 
 	Timer_SetTimer(TIMER_GAME, true);
 
@@ -800,9 +771,28 @@ bool GUI_Widget_Options_Click(Widget *w)
 	Structure_Recount();
 	Unit_Recount();
 
-	g_cursorSpriteID = cursor;
+	g_cursorSpriteID = asyncGUIWidgetOptionsClick.cursor;
 
-	Sprites_SetMouseSprite(0, 0, g_sprites[cursor]);
+	Sprites_SetMouseSprite(0, 0, g_sprites[asyncGUIWidgetOptionsClick.cursor]);
+}
+
+/**
+ * Handles Click event for "Options" button.
+ *
+ * @param w The widget.
+ * @return False, always.
+ */
+bool GUI_Widget_Options_Click(Widget *w)
+{
+	asyncGUIWidgetOptionsClick.w = w;
+	asyncGUIWidgetOptionsClick.cursor = g_cursorSpriteID;
+	asyncGUIWidgetOptionsClick.desc = &g_optionsWindowDesc;
+
+	Async_InvokeInLoop(AsyncGUI_Widget_Options_ClickOpen,
+			AsyncGUI_Widget_Options_ClickCondition,
+			AsyncGUI_Widget_Options_ClickLoop,
+			AsyncGUI_Widget_Options_ClickClose);
+
 
 	return false;
 }
@@ -1284,90 +1274,8 @@ bool GUI_Production_Up_Click(Widget *w)
 	return true;
 }
 
-static void GUI_Purchase_ShowInvoice()
-{
-	Widget *w = g_widgetInvoiceTail;
-	uint16 oldScreenID = GFX_Screen_SetActive(2);
-	uint16 y = 48;
-	uint16 total = 0;
-	uint16 x;
-	char textBuffer[12];
-
-	GUI_DrawFilledRectangle(128, 48, 311, 159, 20);
-
-	GUI_DrawText_Wrapper(String_Get_ByIndex(STR_ITEM_NAME_QTY_TOTAL), 128, y, 12, 0, 0x11);
-
-	y += 7;
-
-	GUI_DrawLine(129, y, 310, y, 12);
-
-	y += 2;
-
-	if (g_factoryWindowOrdered != 0) {
-		uint16 i;
-
-		for (i = 0; i < g_factoryWindowTotal; i++) {
-			ObjectInfo *oi;
-			uint16 amount;
-
-			if (g_factoryWindowItems[i].amount == 0) continue;
-
-			amount = g_factoryWindowItems[i].amount * g_factoryWindowItems[i].credits;
-			total += amount;
-
-			snprintf(textBuffer, sizeof(textBuffer), "%02d %5d", g_factoryWindowItems[i].amount, amount);
-
-			oi = g_factoryWindowItems[i].objectInfo;
-			GUI_DrawText_Wrapper(String_Get_ByIndex(oi->stringID_full), 128, y, 8, 0, 0x11);
-
-			GUI_DrawText_Monospace(textBuffer, 311 - strlen(textBuffer) * 6, y, 15, 0, 6);
-
-			y += 8;
-		}
-	} else {
-		GUI_DrawText_Wrapper(String_Get_ByIndex(STR_NO_UNITS_ON_ORDER), 220, 99, 6, 0, 0x112);
-	}
-
-	GUI_DrawLine(129, 148, 310, 148, 12);
-	GUI_DrawLine(129, 150, 310, 150, 12);
-
-	snprintf(textBuffer, sizeof(textBuffer), "%d", total);
-
-	x = 311 - strlen(textBuffer) * 6;
-
-	/* "Total Cost :" */
-	GUI_DrawText_Wrapper(GUI_String_Get_ByIndex(0xB8), x - 3, 152, 11, 0, 0x211);
-	GUI_DrawText_Monospace(textBuffer, x, 152, 11, 0, 6);
-
-	GUI_Mouse_Hide_Safe();
-	GUI_Screen_Copy(16, 48, 16, 48, 23, 112, 2, 0);
-	GUI_Mouse_Show_Safe();
-
-	GFX_Screen_SetActive(0);
-
-	GUI_FactoryWindow_DrawCaption(String_Get_ByIndex(STR_INVOICE_OF_UNITS_ON_ORDER));
-
-	Input_History_Clear();
-
-	while (GUI_Widget_HandleEvents(w) == 0) {
-		GUI_DrawCredits(g_playerHouseID, 0);
-
-		GUI_FactoryWindow_UpdateSelection(false);
-
-		GUI_PaletteAnimate();
-		sleepIdle();
-	}
-
-	GFX_Screen_SetActive(oldScreenID);
-
-	w = GUI_Widget_Get_ByIndex(w, 10);
-
-	if (w != NULL && Mouse_InsideRegion(w->offsetX, w->offsetY, w->offsetX + w->width, w->offsetY + w->height) != 0) {
-		while (Input_Test(0x41) != 0 || Input_Test(0x42) != 0) msleep(0);
-		Input_History_Clear();
-	}
-
-	if (g_factoryWindowResult == FACTORY_CONTINUE) GUI_FactoryWindow_DrawDetails();
+static void GUI_Purchase_ShowInvoice() {
+	/* do nothing */
 }
 
 /**

@@ -1,0 +1,13 @@
+<% vars.i18n.game_description %>
+
+<h2><% vars.i18n.play %></h2>
+<ul>
+  <li><h2><a href="/atreides/" class="button"><% vars.i18n.house_atreides %></a></h2></li>
+  <li><h2><a href="/ordos/" class="button"><% vars.i18n.house_ordos %></a></h2></li>
+  <li><h2><a href="/harkonnen/" class="button"><% vars.i18n.house_harkonnen %></a></h2></li>
+</ul>
+
+<h3><% vars.i18n.support %></h3>
+
+<p><% vars.i18n.subscribe %></p>
+<p><% vars.i18n.powered %></p>

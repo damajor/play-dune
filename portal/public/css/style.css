@@ -1,0 +1,136 @@
+html {
+  height: 100%;
+}
+
+body {
+  height: 100%;
+  font: 14px/22px Helvetica, Arial, sans-serif;
+  background: #000 url("../img/dune.png") no-repeat right bottom;
+}
+
+a {
+  color: rgb(0, 0, 200);
+}
+
+ul {
+  list-style-image: none;
+  list-style-type: none;
+}
+
+.header {
+  background: #FFF;
+}
+
+.wrapper {
+  -webkit-border-radius: 5px;
+
+  border-radius: 5px;
+  border: 2px solid rgba(180, 180, 235, 1);
+  
+  background: rgba(188, 169, 137, 0.9);
+
+  margin: 30px auto;
+  padding: 15px 30px;
+  width: 748px;
+}
+
+footer, footer a {
+  color:  #FFF;
+  text-align: center;
+}
+
+#status {
+  width: 600px;
+  margin: 30px auto;
+}
+
+#canvas::selection {
+    background:transparent;
+}
+
+#canvas::-moz-selection {
+    background:transparent;
+}
+
+#canvas::-webkit-selection {
+    background:transparent;
+}
+
+#canvas {
+   width: 600px;
+   height: 400px;
+   margin: 0;
+   padding: 0;
+   clear: both;
+
+  -webki t-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+#mute {
+  background: url('../img/mute.png');
+  width: 32px;
+  height: 32px;
+  display: inline-block;
+  text-decoration: none;
+  border: none;
+  margin: 0px;
+  cursor: pointer;
+}
+
+.container {
+  position: relative;
+}
+
+.controls {
+  position: absolute;
+  left: 15px;
+  top: 0;
+  display: none;
+}
+
+#status {
+  position: absolute;
+  left: 15px;
+  top: 0;
+}
+
+.canvas-container {
+  width: 600px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+#slots {
+  width: 600px;
+  margin: 0 auto;
+  display: none;
+}
+
+.slot {
+  float: left;
+  cursor: pointer;
+  /* 1 */
+  -webkit-appearance: button;
+  /* 2 */
+  *overflow: visible;
+  /* 3 */
+  width: 150px;
+}
+
+#slots #cancel {
+  margin: 5px auto;
+  clear: both;
+  display: block;
+  cursor: pointer;
+  /* 1 */
+  -webkit-appearance: button;
+  /* 2 */
+  *overflow: visible;
+  /* 3 */
+  width: 150px;
+}

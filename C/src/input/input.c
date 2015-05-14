@@ -500,7 +500,7 @@ uint16 Input_Wait()
 		value = s_historyHead;
 		if (value != s_historyTail) break;
 
-		msleep(0);
+		sleepIdle();
 	}
 
 	value = Input_ReadHistory(value);
@@ -607,7 +607,7 @@ uint16 Input_WaitForValidInput()
 			index = s_historyHead;
 			if (index != s_historyTail) break;
 
-			msleep(0);
+			sleepIdle();
 		}
 
 		value = Input_ReadHistory(index);
@@ -615,6 +615,36 @@ uint16 Input_WaitForValidInput()
 			if ((value & 0xFF) == s_keymapIgnore[i]) break;
 		}
 	} while (i < lengthof(s_keymapIgnore) || (value & 0x800) != 0 || (value & 0xFF) >= 0x7A);
+
+	value = Input_Keyboard_HandleKeys(value);
+	Input_ReadInputFromFile();
+	return value & 0xFF;
+}
+
+/**
+ * Get valid input
+ * @return Read input.
+ */
+uint16 Input_GetValidInput()
+{
+	uint16 index = 0;
+	uint16 value, i;
+
+	if (g_mouseMode != INPUT_MOUSE_MODE_PLAY) {
+		index = s_historyHead;
+		if (index == s_historyTail) {
+			return 0;
+		}
+	}
+
+	value = Input_ReadHistory(index);
+
+	for (i = 0; i < lengthof(s_keymapIgnore); i++) {
+		if ((value & 0xFF) == s_keymapIgnore[i]) {
+			return 0;
+		}
+	}
+
 
 	value = Input_Keyboard_HandleKeys(value);
 	Input_ReadInputFromFile();
@@ -654,7 +684,7 @@ uint16 Input_Keyboard_NextKey()
 
 		s_historyHead = index + 2;
 
-		msleep(0);
+		sleepIdle();
 	}
 
 	if (value != 0) {

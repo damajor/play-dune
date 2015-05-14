@@ -50,6 +50,11 @@
 
 #include "../async.h"
 
+#if EMSCRIPTEN
+extern uint16 g_campaignID;
+extern void pushStats(uint16 g_campaignID, uint16 houseId, uint16 killed, uint16 destroyed, uint16 harvested, uint16 score);
+#endif
+
 MSVC_PACKED_BEGIN
 typedef struct ClippingArea {
 	/* 0000(2)   */ PACK uint16 left;                       /*!< ?? */
@@ -744,49 +749,42 @@ static void GUI_Widget_SetProperties(uint16 index, uint16 xpos, uint16 ypos, uin
 	if (g_curWidgetIndex == index) Widget_SetCurrentWidget(index);
 }
 
-/**
- * Displays a message and waits for a user action.
- * @param str The text to display.
- * @param spriteID The sprite to draw (0xFFFF for none).
- * @param ... The args for the text.
- * @return ??
- */
-uint16 GUI_DisplayModalMessage(char *str, uint16 spriteID, ...)
-{
-	static char textBuffer[768];
+typedef struct AsyncDisplayModalMessage {
+	uint16 spriteID;
 
-	va_list ap;
+	char textBuffer[768];
 	uint16 oldValue_07AE_0000;
 	uint16 ret;
 	uint16 oldScreenID;
-	uint8 *screenBackup = NULL;
+	uint8 *screenBackup;
+} AsyncDisplayModalMessage;
 
-	va_start(ap, spriteID);
-	vsnprintf(textBuffer, sizeof(textBuffer), str, ap);
-	va_end(ap);
+static AsyncDisplayModalMessage asyncModalMessage;
 
+void async_DisplayModalMessageOpen() {
 	GUI_Mouse_Hide_Safe();
 
-	oldScreenID = GFX_Screen_SetActive(0);
+	asyncModalMessage.oldScreenID = GFX_Screen_SetActive(0);
 
 	GUI_DrawText_Wrapper(NULL, 0, 0, 0, 0, 0x22);
 
-	oldValue_07AE_0000 = Widget_SetCurrentWidget(1);
+	asyncModalMessage.oldValue_07AE_0000 = Widget_SetCurrentWidget(1);
 
-	g_widgetProperties[1].height = g_fontCurrent->height * max(GUI_SplitText(textBuffer, ((g_curWidgetWidth - ((spriteID == 0xFFFF) ? 2 : 7)) << 3) - 6, '\r'), 3) + 18;
+	g_widgetProperties[1].height = g_fontCurrent->height
+			* max(GUI_SplitText(asyncModalMessage.textBuffer, ((g_curWidgetWidth - ((asyncModalMessage.spriteID == 0xFFFF) ? 2 : 7)) << 3) - 6, '\r'), 3) + 18;
 
 	Widget_SetCurrentWidget(1);
 
-	screenBackup = malloc(GFX_GetSize(g_curWidgetWidth * 8, g_curWidgetHeight));
+	asyncModalMessage.screenBackup = malloc(GFX_GetSize(g_curWidgetWidth * 8, g_curWidgetHeight));
 
-	if (screenBackup != NULL) {
-		GFX_CopyToBuffer(g_curWidgetXBase * 8, g_curWidgetYBase, g_curWidgetWidth * 8, g_curWidgetHeight, screenBackup);
+	if (asyncModalMessage.screenBackup != NULL) {
+		GFX_CopyToBuffer(g_curWidgetXBase * 8, g_curWidgetYBase, g_curWidgetWidth * 8, g_curWidgetHeight, asyncModalMessage.screenBackup);
 	}
 
 	GUI_Widget_DrawBorder(1, 1, 1);
 
-	if (spriteID != 0xFFFF) {
-		GUI_DrawSprite(g_screenActiveID, g_sprites[spriteID], 7, 8, 1, 0x4000);
+	if (asyncModalMessage.spriteID != 0xFFFF) {
+		GUI_DrawSprite(g_screenActiveID, g_sprites[asyncModalMessage.spriteID], 7, 8, 1, 0x4000);
 		GUI_Widget_SetProperties(1, g_curWidgetXBase + 5, g_curWidgetYBase + 8, g_curWidgetWidth - 7, g_curWidgetHeight - 16);
 	} else {
 		GUI_Widget_SetProperties(1, g_curWidgetXBase + 1, g_curWidgetYBase + 8, g_curWidgetWidth - 2, g_curWidgetHeight - 16);
@@ -794,7 +792,7 @@ uint16 GUI_DisplayModalMessage(char *str, uint16 spriteID, ...)
 
 	g_curWidgetFGColourNormal = 0;
 
-	GUI_DrawText(textBuffer, g_curWidgetXBase << 3, g_curWidgetYBase, g_curWidgetFGColourBlink, g_curWidgetFGColourNormal);
+	GUI_DrawText(asyncModalMessage.textBuffer, g_curWidgetXBase << 3, g_curWidgetYBase, g_curWidgetFGColourBlink, g_curWidgetFGColourNormal);
 
 	GFX_SetPalette(g_palette1);
 
@@ -807,41 +805,73 @@ uint16 GUI_DisplayModalMessage(char *str, uint16 spriteID, ...)
 	}
 
 	Input_History_Clear();
+}
 
-	do {
-		GUI_PaletteAnimate();
+void async_DisplayModalMessageCondition(bool *ref) {
+	uint16 ret = Input_GetValidInput();
+	*ref = ret == 0 || (ret & 0x800) != 0;
+}
 
-		ret = Input_WaitForValidInput();
-		sleepIdle();
-	} while (ret == 0 || (ret & 0x800) != 0);
+void async_DisplayModalMessageLoop() {
+	GUI_PaletteAnimate();
+	sleepIdle();
+}
 
+void async_DisplayModalMessageClose() {
 	Input_HandleInput(0x841);
 
 	GUI_Mouse_Hide_Safe();
 
-	if (spriteID != 0xFFFF) {
+	if (asyncModalMessage.spriteID != 0xFFFF) {
 		GUI_Widget_SetProperties(1, g_curWidgetXBase - 5, g_curWidgetYBase - 8, g_curWidgetWidth + 7, g_curWidgetHeight + 16);
 	} else {
 		GUI_Widget_SetProperties(1, g_curWidgetXBase - 1, g_curWidgetYBase - 8, g_curWidgetWidth + 2, g_curWidgetHeight + 16);
 	}
 
-	if (screenBackup != NULL) {
-		GFX_CopyFromBuffer(g_curWidgetXBase * 8, g_curWidgetYBase, g_curWidgetWidth * 8, g_curWidgetHeight, screenBackup);
+	if (asyncModalMessage.screenBackup != NULL) {
+		GFX_CopyFromBuffer(g_curWidgetXBase * 8, g_curWidgetYBase, g_curWidgetWidth * 8, g_curWidgetHeight, asyncModalMessage.screenBackup);
 	}
 
-	Widget_SetCurrentWidget(oldValue_07AE_0000);
+	Widget_SetCurrentWidget(asyncModalMessage.oldValue_07AE_0000);
 
-	if (screenBackup != NULL) {
-		free(screenBackup);
+	if (asyncModalMessage.screenBackup != NULL) {
+		free(asyncModalMessage.screenBackup);
 	} else {
 		g_viewport_forceRedraw = true;
 	}
 
-	GFX_Screen_SetActive(oldScreenID);
+	GFX_Screen_SetActive(asyncModalMessage.oldScreenID);
 
 	GUI_Mouse_Show_Safe();
+}
 
-	return ret;
+/**
+ * Displays a message and waits for a user action.
+ * @param str The text to display.
+ * @param spriteID The sprite to draw (0xFFFF for none).
+ * @param ... The args for the text.
+ * @return ??
+ */
+uint16 Async_GUI_DisplayModalMessage(char *str, uint16 spriteID, ...)
+{
+	va_list ap;
+
+	asyncModalMessage.spriteID = spriteID;
+	asyncModalMessage.screenBackup = NULL;
+
+	va_start(ap, spriteID);
+	vsnprintf(asyncModalMessage.textBuffer, sizeof(asyncModalMessage.textBuffer), str, ap);
+	va_end(ap);
+
+	Async_InvokeInLoop(
+			async_DisplayModalMessageOpen,
+			async_DisplayModalMessageCondition,
+			async_DisplayModalMessageLoop,
+			async_DisplayModalMessageClose);
+
+
+	/*ignoring*/
+	return 0;
 }
 
 /**
@@ -1461,28 +1491,31 @@ static void GUI_HallOfFame_DrawBackground(uint16 score, bool hallOfFame)
 
 static void GUI_EndStats_Sleep(uint16 delay)
 {
-	g_timerTimeout = delay;
+	(void) delay;
+/*	g_timerTimeout = delay;
 	while (g_timerTimeout != 0) {
 		GUI_HallOfFame_Tick();
 		sleepIdle();
-	}
+	} */
 }
 
-/**
- * Shows the stats at end of scenario.
- * @param killedAllied The amount of destroyed allied units.
- * @param killedEnemy The amount of destroyed enemy units.
- * @param destroyedAllied The amount of destroyed allied structures.
- * @param destroyedEnemy The amount of destroyed enemy structures.
- * @param harvestedAllied The amount of spice harvested by allies.
- * @param harvestedEnemy The amount of spice harvested by enemies.
- * @param score The base score.
- * @param houseID The houseID of the player.
- */
-void GUI_EndStats_Show(uint16 killedAllied, uint16 killedEnemy, uint16 destroyedAllied, uint16 destroyedEnemy, uint16 harvestedAllied, uint16 harvestedEnemy, int16 score, uint8 houseID)
-{
-	uint16 loc06;
+typedef struct AsyncEndStatsShow {
+	uint16 killedAllied;
+	uint16 killedEnemy;
+	uint16 destroyedAllied;
+	uint16 destroyedEnemy;
+	uint16 harvestedAllied;
+	uint16 harvestedEnemy;
+	int16 score;
+	uint8 houseID;
+
 	uint16 oldScreenID;
+} AsyncEndStatsShow;
+
+static AsyncEndStatsShow asyncEndStatsShow;
+
+void async_GUI_EndStats_ShowOpen() {
+	uint16 loc06;
 	uint16 loc16;
 	uint16 loc18;
 	uint16 loc1A;
@@ -1491,7 +1524,11 @@ void GUI_EndStats_Show(uint16 killedAllied, uint16 killedEnemy, uint16 destroyed
 
 	s_ticksPlayed = ((g_timerGame - g_tickScenarioStart) / 3600) + 1;
 
-	score = Update_Score(score, &harvestedAllied, &harvestedEnemy, houseID);
+	asyncEndStatsShow.score = Update_Score(asyncEndStatsShow.score, &asyncEndStatsShow.harvestedAllied, &asyncEndStatsShow.harvestedEnemy, asyncEndStatsShow.houseID);
+
+#if EMSCRIPTEN
+	pushStats(g_campaignID, asyncEndStatsShow.houseID, asyncEndStatsShow.killedEnemy, asyncEndStatsShow.destroyedEnemy, asyncEndStatsShow.harvestedAllied, asyncEndStatsShow.score);
+#endif
 
 	loc16 = (g_scenarioID == 1) ? 2 : 3;
 
@@ -1499,9 +1536,9 @@ void GUI_EndStats_Show(uint16 killedAllied, uint16 killedEnemy, uint16 destroyed
 
 	GUI_ChangeSelectionType(SELECTIONTYPE_MENTAT);
 
-	oldScreenID = GFX_Screen_SetActive(2);
+	asyncEndStatsShow.oldScreenID = GFX_Screen_SetActive(2);
 
-	GUI_HallOfFame_DrawBackground(score, false);
+	GUI_HallOfFame_DrawBackground(asyncEndStatsShow.score, false);
 
 	GUI_DrawTextOnFilledRectangle(String_Get_ByIndex(STR_SPICE_HARVESTED_BY), 83);
 	GUI_DrawTextOnFilledRectangle(String_Get_ByIndex(STR_UNITS_DESTROYED_BY), 119);
@@ -1523,12 +1560,12 @@ void GUI_EndStats_Show(uint16 killedAllied, uint16 killedEnemy, uint16 destroyed
 
 	Input_History_Clear();
 
-	loc32[0][0][0] = harvestedAllied;
-	loc32[0][1][0] = harvestedEnemy;
-	loc32[1][0][0] = killedEnemy;
-	loc32[1][1][0] = killedAllied;
-	loc32[2][0][0] = destroyedEnemy;
-	loc32[2][1][0] = destroyedAllied;
+	loc32[0][0][0] = asyncEndStatsShow.harvestedAllied;
+	loc32[0][1][0] = asyncEndStatsShow.harvestedEnemy;
+	loc32[1][0][0] = asyncEndStatsShow.killedEnemy;
+	loc32[1][1][0] = asyncEndStatsShow.killedAllied;
+	loc32[2][0][0] = asyncEndStatsShow.destroyedEnemy;
+	loc32[2][1][0] = asyncEndStatsShow.destroyedAllied;
 
 	for (i = 0; i < loc16; i++) {
 		uint16 loc08 = loc32[i][0][0];
@@ -1547,7 +1584,7 @@ void GUI_EndStats_Show(uint16 killedAllied, uint16 killedEnemy, uint16 destroyed
 	}
 
 	GUI_EndStats_Sleep(45);
-	GUI_HallOfFame_DrawRank(score, true);
+	GUI_HallOfFame_DrawRank(asyncEndStatsShow.score, true);
 	GUI_EndStats_Sleep(45);
 
 	for (i = 0; i < loc16; i++) {
@@ -1612,22 +1649,57 @@ void GUI_EndStats_Show(uint16 killedAllied, uint16 killedEnemy, uint16 destroyed
 	GUI_Mouse_Show_Safe();
 
 	Input_History_Clear();
+}
 
-	while (true) {
-		GUI_HallOfFame_Tick();
-		if (Input_Keyboard_NextKey() != 0) break;
-		sleepIdle();
-	}
+void async_GUI_EndStats_ShowCondition(bool *condition) {
+	*condition = Input_Keyboard_NextKey() == 0;
+}
 
+void async_GUI_EndStats_ShowLoop() {
+	GUI_HallOfFame_Tick();
+	sleepIdle();
+}
+
+void async_GUI_EndStats_ShowClose() {
 	Input_History_Clear();
 
-	GUI_HallOfFame_Show(score);
+	/*GUI_HallOfFame_Show(score);*/
 
 	memset(g_palette1 + 255 * 3, 0, 3);
 
-	GFX_Screen_SetActive(oldScreenID);
+	GFX_Screen_SetActive(asyncEndStatsShow.oldScreenID);
 
 	Driver_Music_FadeOut();
+}
+
+
+/**
+ * Shows the stats at end of scenario.
+ * @param killedAllied The amount of destroyed allied units.
+ * @param killedEnemy The amount of destroyed enemy units.
+ * @param destroyedAllied The amount of destroyed allied structures.
+ * @param destroyedEnemy The amount of destroyed enemy structures.
+ * @param harvestedAllied The amount of spice harvested by allies.
+ * @param harvestedEnemy The amount of spice harvested by enemies.
+ * @param score The base score.
+ * @param houseID The houseID of the player.
+ */
+void Async_GUI_EndStats_Show(uint16 killedAllied, uint16 killedEnemy, uint16 destroyedAllied, uint16 destroyedEnemy, uint16 harvestedAllied, uint16 harvestedEnemy, int16 score, uint8 houseID)
+{
+	asyncEndStatsShow.killedAllied = killedAllied;
+	asyncEndStatsShow.killedEnemy = killedEnemy;
+	asyncEndStatsShow.destroyedAllied = destroyedAllied;
+	asyncEndStatsShow.destroyedEnemy = destroyedEnemy;
+	asyncEndStatsShow.harvestedAllied = harvestedAllied;
+	asyncEndStatsShow.harvestedEnemy = harvestedEnemy;
+	asyncEndStatsShow.score = score;
+	asyncEndStatsShow.houseID = houseID;
+
+	Async_InvokeInLoop(
+			async_GUI_EndStats_ShowOpen,
+			async_GUI_EndStats_ShowCondition,
+			async_GUI_EndStats_ShowLoop,
+			async_GUI_EndStats_ShowClose);
 }
 
 /**
@@ -1701,11 +1773,11 @@ uint8 GUI_PickHouse()
 
 		GUI_Mouse_Hide_Safe();
 
-		if (g_enableVoices != 0) {
+		/*if (g_enableVoices != 0) {
 			Sound_Output_Feedback(houseID + 62);
 
 			while (Sound_StartSpeech()) sleepIdle();
-		}
+		}*/
 
 		while (w != NULL) {
 			Widget *next = w->next;
@@ -1744,7 +1816,8 @@ uint8 GUI_PickHouse()
 		GUI_Mouse_Show_Safe();
 
 		while (true) {
-			yes_no = GUI_Mentat_Loop(House_GetWSAHouseFilename(houseID), NULL, NULL, true, w);
+			abort();
+			Async_GUI_Mentat_Loop(House_GetWSAHouseFilename(houseID), NULL, NULL, true, w);
 
 			if ((yes_no & 0x8000) != 0) break;
 			sleepIdle();
@@ -1891,7 +1964,7 @@ uint16 GUI_DisplayHint(uint16 stringID, uint16 spriteID)
 	if ((*hintsShown & mask) != 0) return 0;
 	*hintsShown |= mask;
 
-	return GUI_DisplayModalMessage(String_Get_ByIndex(stringID), spriteID);
+	return Async_GUI_DisplayModalMessage(String_Get_ByIndex(stringID), spriteID);
 }
 
 void GUI_DrawProgressbar(uint16 current, uint16 max)
@@ -2655,7 +2728,7 @@ static void GUI_FactoryWindow_InitItems()
 	}
 
 	if (g_factoryWindowTotal == 0) {
-		GUI_DisplayModalMessage("ERROR: No items in construction list!", 0xFFFF);
+		Async_GUI_DisplayModalMessage("ERROR: No items in construction list!", 0xFFFF);
 		PrepareEnd();
 		exit(0);
 	}
@@ -2727,19 +2800,27 @@ static void GUI_FactoryWindow_Init()
 	GFX_Screen_SetActive(oldScreenID);
 }
 
-static uint16 ca_oldScreenID = 0;
-static uint8 ca_backup[3];
-void (*ca_callback)(FactoryResult);
+typedef struct AsyncDisplayFactoryWindow {
+	bool isConstructionYard;
+	bool isStarPort;
+	uint16 upgradeCost;
+	uint16 oldScreenID;
+	uint8 backup[3];
+	void (*callback)(FactoryResult);
+} AsyncDisplayFactoryWindow;
 
-void ca_GUI_DisplayFactoryWindow_Open(bool isConstructionYard, bool isStarPort, uint16 upgradeCost) {
-	ca_oldScreenID = GFX_Screen_SetActive(0);
+static AsyncDisplayFactoryWindow asyncDisplayFactoryWindow;
+
+
+void async_DisplayFactoryWindowOpen() {
+	asyncDisplayFactoryWindow.oldScreenID = GFX_Screen_SetActive(0);
 	Timer_SetTimer(TIMER_GAME, false);
 
-	memcpy(ca_backup, g_palette1 + 255 * 3, 3);
+	memcpy(asyncDisplayFactoryWindow.backup, g_palette1 + 255 * 3, 3);
 
-	g_factoryWindowConstructionYard = isConstructionYard;
-	g_factoryWindowStarport = isStarPort;
-	g_factoryWindowUpgradeCost = upgradeCost;
+	g_factoryWindowConstructionYard = asyncDisplayFactoryWindow.isConstructionYard;
+	g_factoryWindowStarport = asyncDisplayFactoryWindow.isStarPort;
+	g_factoryWindowUpgradeCost = asyncDisplayFactoryWindow.upgradeCost;
 	g_factoryWindowOrdered = 0;
 
 	GUI_FactoryWindow_Init();
@@ -2749,14 +2830,14 @@ void ca_GUI_DisplayFactoryWindow_Open(bool isConstructionYard, bool isStarPort, 
 	g_factoryWindowResult = FACTORY_CONTINUE;
 }
 
-void ca_GUI_DisplayFactoryWindow_Close() {
+void async_DisplayFactoryWindowClose() {
 	GUI_DrawCredits(g_playerHouseID, 1);
 
-	GFX_Screen_SetActive(ca_oldScreenID);
+	GFX_Screen_SetActive(asyncDisplayFactoryWindow.oldScreenID);
 
 	GUI_FactoryWindow_B495_0F30();
 
-	memcpy(g_palette1 + 255 * 3, ca_backup, 3);
+	memcpy(g_palette1 + 255 * 3, asyncDisplayFactoryWindow.backup, 3);
 
 	GFX_SetPalette(g_palette1);
 
@@ -2765,15 +2846,15 @@ void ca_GUI_DisplayFactoryWindow_Close() {
 
 	Timer_SetTimer(TIMER_GAME, true);
 
-	ca_callback(g_factoryWindowResult);
+	asyncDisplayFactoryWindow.callback(g_factoryWindowResult);
 }
 
 
-bool ca_ShouldDisplayFactoryWindow() {
-	return g_factoryWindowResult == FACTORY_CONTINUE;
+void async_DisplayFactoryWindowCondition(bool *ref) {
+	*ref = g_factoryWindowResult == FACTORY_CONTINUE;
 }
 
-void ca_DisplayFactoryWindowLoop() {
+void async_DisplayFactoryWindowLoop() {
 	uint16 event;
 
 	GUI_DrawCredits(g_playerHouseID, 0);
@@ -2796,13 +2877,16 @@ void ca_DisplayFactoryWindowLoop() {
  * @return Unknown value.
  */
 void Async_DisplayFactoryWindow(bool isConstructionYard, bool isStarPort, uint16 upgradeCost, void (*callback)(FactoryResult)) {
-	ca_GUI_DisplayFactoryWindow_Open(isConstructionYard, isStarPort, upgradeCost);
-	ca_callback = callback;
+	asyncDisplayFactoryWindow.isConstructionYard = isConstructionYard;
+	asyncDisplayFactoryWindow.isStarPort = isStarPort;
+	asyncDisplayFactoryWindow.upgradeCost = upgradeCost;
+	asyncDisplayFactoryWindow.callback = callback;
 
-	Async_InvokeWhile(
-		ca_DisplayFactoryWindowLoop,
-		ca_ShouldDisplayFactoryWindow,
-		ca_GUI_DisplayFactoryWindow_Close
+	Async_InvokeInLoop(
+		async_DisplayFactoryWindowOpen,
+		async_DisplayFactoryWindowCondition,
+		async_DisplayFactoryWindowLoop,
+		async_DisplayFactoryWindowClose
 	);
 }
 
@@ -2959,7 +3043,7 @@ static int16 GUI_StrategicMap_ClickedRegion()
 
 	if (Input_Keyboard_NextKey() == 0) return 0;
 
-	key = Input_WaitForValidInput();
+	key = Input_GetValidInput();
 	if (key != 0xC6 && key != 0xC7) return 0;
 
 	return g_fileRgnclkCPS[(g_mouseClickY - 24) * 304 + g_mouseClickX - 8];
@@ -2980,7 +3064,6 @@ static bool GUI_StrategicMap_FastForwardToggleWithESC()
 
 static void GUI_StrategicMap_DrawText(char *string)
 {
-	static uint32 l_timerNext = 0;
 	uint16 oldScreenID;
 	uint16 y;
 
@@ -2992,41 +3075,38 @@ static void GUI_StrategicMap_DrawText(char *string)
 
 	GUI_DrawText_Wrapper(string, 64, 175, 12, 0, 0x12);
 
-	while (g_timerGUI + 90 < l_timerNext) sleepIdle();
-
 	for (y = 185; y > 172; y--) {
 		GUI_Screen_Copy(8, y, 8, 165, 24, 14, 2, 0);
-
-		g_timerTimeout = 3;
-
-		while (g_timerTimeout != 0) {
-			if (GUI_StrategicMap_FastForwardToggleWithESC()) break;
-			sleepIdle();
-		}
 	}
 
-	l_timerNext = g_timerGUI + 90;
 
 	GFX_Screen_SetActive(oldScreenID);
 }
 
-static uint16 GUI_StrategicMap_ScenarioSelection(uint16 campaignID)
-{
+typedef struct AsyncStrategicMapScenarioSelection {
+	uint16 campaignID;
+
+	uint16 scenarioID;
+	bool loop;
+	uint16 region;
+	StrategicMapData data[20];
 	uint16 count;
+} AsyncStrategicMapScenarioSelection;
+
+static AsyncStrategicMapScenarioSelection asyncStrategicMapScenarioSelection;
+
+void async_GUI_StrategicMap_ScenarioSelectionOpen() {
 	char key[6];
-	bool loop = true;
 	bool loc12 = true;
 	char category[16];
-	StrategicMapData data[20];
-	uint16 scenarioID;
-	uint16 region;
+
 	uint16 i;
 
 	GUI_Palette_CreateRemap(g_playerHouseID);
 
-	sprintf(category, "GROUP%d", campaignID);
+	sprintf(category, "GROUP%d", asyncStrategicMapScenarioSelection.campaignID);
 
-	memset(data, 0, 20 * sizeof(StrategicMapData));
+	memset(asyncStrategicMapScenarioSelection.data, 0, 20 * sizeof(StrategicMapData));
 
 	for (i = 0; i < 20; i++) {
 		char buffer[81];
@@ -3035,71 +3115,98 @@ static uint16 GUI_StrategicMap_ScenarioSelection(uint16 campaignID)
 
 		if (Ini_GetString(category, key, NULL, buffer, sizeof(buffer) - 1, g_fileRegionINI) == NULL) break;
 
-		sscanf(buffer, "%hd,%hd,%hd,%hd", &data[i].index, &data[i].arrow, &data[i].offsetX, &data[i].offsetY);
+		sscanf(buffer, "%hd,%hd,%hd,%hd",
+				&asyncStrategicMapScenarioSelection.data[i].index,
+				&asyncStrategicMapScenarioSelection.data[i].arrow,
+				&asyncStrategicMapScenarioSelection.data[i].offsetX,
+				&asyncStrategicMapScenarioSelection.data[i].offsetY);
 
-		if (!GUI_StrategicMap_GetRegion(data[i].index)) loc12 = false;
+		if (!GUI_StrategicMap_GetRegion(asyncStrategicMapScenarioSelection.data[i].index)) loc12 = false;
 
-		GFX_Screen_Copy2(data[i].offsetX, data[i].offsetY, i * 16, 152, 16, 16, 2, 2, false);
-		GFX_Screen_Copy2(data[i].offsetX, data[i].offsetY, i * 16, 0, 16, 16, 2, 2, false);
-		GUI_DrawSprite(2, g_sprites[505 + data[i].arrow], i * 16, 152, 0, 0x100, g_remap, 1);
+		GFX_Screen_Copy2(asyncStrategicMapScenarioSelection.data[i].offsetX,
+				asyncStrategicMapScenarioSelection.data[i].offsetY, i * 16, 152, 16, 16, 2, 2, false);
+		GFX_Screen_Copy2(asyncStrategicMapScenarioSelection.data[i].offsetX,
+				asyncStrategicMapScenarioSelection.data[i].offsetY, i * 16, 0, 16, 16, 2, 2, false);
+		GUI_DrawSprite(2, g_sprites[505 + asyncStrategicMapScenarioSelection.data[i].arrow], i * 16, 152, 0, 0x100, g_remap, 1);
 	}
 
-	count = i;
+	asyncStrategicMapScenarioSelection.count = i;
 
 	if (loc12) {
-		for (i = 0; i < count; i++) {
-			GUI_StrategicMap_SetRegion(data[i].index, false);
+		for (i = 0; i < asyncStrategicMapScenarioSelection.count; i++) {
+			GUI_StrategicMap_SetRegion(asyncStrategicMapScenarioSelection.data[i].index, false);
 		}
 	} else {
-		for (i = 0; i < count; i++) {
-			if (GUI_StrategicMap_GetRegion(data[i].index)) data[i].index = 0;
+		for (i = 0; i < asyncStrategicMapScenarioSelection.count; i++) {
+			if (GUI_StrategicMap_GetRegion(asyncStrategicMapScenarioSelection.data[i].index)) asyncStrategicMapScenarioSelection.data[i].index = 0;
 		}
 	}
 
 	GUI_Mouse_Hide_Safe();
 
-	for (i = 0; i < count; i++) {
-		if (data[i].index == 0) continue;
+	for (i = 0; i < asyncStrategicMapScenarioSelection.count; i++) {
+		if (asyncStrategicMapScenarioSelection.data[i].index == 0) continue;
 
-		GFX_Screen_Copy2(i * 16, 152, data[i].offsetX, data[i].offsetY, 16, 16, 2, 0, false);
+		GFX_Screen_Copy2(i * 16, 152, asyncStrategicMapScenarioSelection.data[i].offsetX, asyncStrategicMapScenarioSelection.data[i].offsetY, 16, 16, 2, 0, false);
 	}
 
 	GUI_Mouse_Show_Safe();
 	Input_History_Clear();
+}
 
-	while (loop) {
-		region = GUI_StrategicMap_ClickedRegion();
+void async_GUI_StrategicMap_ScenarioSelectionCondition(bool *condition) {
+	*condition = asyncStrategicMapScenarioSelection.loop;
+}
 
-		if (region == 0) {
-			sleepIdle();
-			continue;
-		}
+void async_GUI_StrategicMap_ScenarioSelectionLoop() {
+	uint16 i;
 
-		for (i = 0; i < count; i++) {
-			GUI_StrategicMap_AnimateArrows();
+	asyncStrategicMapScenarioSelection.region = GUI_StrategicMap_ClickedRegion();
 
-			if (data[i].index == region) {
-				loop = false;
-				scenarioID = i;
-				break;
-			}
-		}
-
+	if (asyncStrategicMapScenarioSelection.region == 0) {
 		sleepIdle();
+		return;
 	}
 
-	GUI_StrategicMap_SetRegion(region, true);
+	for (i = 0; i < asyncStrategicMapScenarioSelection.count; i++) {
+		GUI_StrategicMap_AnimateArrows();
+
+		if (asyncStrategicMapScenarioSelection.data[i].index == asyncStrategicMapScenarioSelection.region) {
+			asyncStrategicMapScenarioSelection.loop = false;
+			asyncStrategicMapScenarioSelection.scenarioID = i;
+			return;
+		}
+	}
+
+	sleepIdle();
+}
+
+void async_GUI_StrategicMap_ScenarioSelectionClose() {
+
+	GUI_StrategicMap_SetRegion(asyncStrategicMapScenarioSelection.region, true);
 
 	GUI_StrategicMap_DrawText("");
 
-	GUI_StrategicMap_AnimateSelected(region, data);
+	/*GUI_StrategicMap_AnimateSelected(asyncStrategicMapScenarioSelection.region, asyncStrategicMapScenarioSelection.data);*/
 
-	scenarioID += (campaignID - 1) * 3 + 2;
+	asyncStrategicMapScenarioSelection.scenarioID += (asyncStrategicMapScenarioSelection.campaignID - 1) * 3 + 2;
 
-	if (campaignID > 7) scenarioID--;
-	if (campaignID > 8) scenarioID--;
+	if (asyncStrategicMapScenarioSelection.campaignID > 7) asyncStrategicMapScenarioSelection.scenarioID--;
+	if (asyncStrategicMapScenarioSelection.campaignID > 8) asyncStrategicMapScenarioSelection.scenarioID--;
 
-	return scenarioID;
+	Async_StorageSet_uint16(asyncStrategicMapScenarioSelection.scenarioID);
+}
+
+static void Async_GUI_StrategicMap_ScenarioSelection(uint16 campaignID)
+{
+	asyncStrategicMapScenarioSelection.campaignID = campaignID;
+	asyncStrategicMapScenarioSelection.loop = true;
+
+	Async_InvokeInLoop(
+			async_GUI_StrategicMap_ScenarioSelectionOpen,
+			async_GUI_StrategicMap_ScenarioSelectionCondition,
+			async_GUI_StrategicMap_ScenarioSelectionLoop,
+			async_GUI_StrategicMap_ScenarioSelectionClose);
 }
 
 static void GUI_StrategicMap_ReadHouseRegions(uint8 houseID, uint16 campaignID)
@@ -3151,6 +3258,7 @@ static void GUI_StrategicMap_DrawRegion(uint8 houseId, uint16 region, bool progr
 	GUI_Screen_FadeIn2(x + 8, y + 24, Sprite_GetWidth(sprite), Sprite_GetHeight(sprite), 2, 0, GUI_StrategicMap_FastForwardToggleWithESC() ? 0 : 1, false);
 }
 
+
 static void GUI_StrategicMap_PrepareRegions(uint16 campaignID)
 {
 	uint16 i;
@@ -3162,10 +3270,13 @@ static void GUI_StrategicMap_PrepareRegions(uint16 campaignID)
 		GUI_StrategicMap_ReadHouseRegions(HOUSE_SARDAUKAR, i + 1);
 	}
 
-	for (i = 0; i < g_regions[0]; i++) {
-		if (g_regions[i + 1] == 0xFFFF) continue;
-
-		GUI_StrategicMap_DrawRegion((uint8)g_regions[i + 1], i + 1, false);
+	i = 0;
+	while (i < g_regions[0]) {
+		if (g_regions[i + 1] != 0xFFFF) {
+			GUI_StrategicMap_DrawRegion((uint8)g_regions[i + 1], i + 1, false);
+		}
+		i++;
+		sleepIdle();
 	}
 }
 
@@ -3211,27 +3322,77 @@ static void GUI_StrategicMap_ShowProgression(uint16 campaignID)
 	GUI_StrategicMap_DrawText("");
 }
 
-uint16 GUI_StrategicMap_Show(uint16 campaignID, bool win)
-{
+typedef struct AsyncStrategicMapShow {
+	uint16 campaignID;
+	bool win;
+
 	uint16 scenarioID;
 	uint16 previousCampaignID;
-	uint16 x;
-	uint16 y;
 	uint16 oldScreenID;
+
 	uint8 palette[3 * 256];
 	uint8 loc316[12];
+} AsyncStrategicMapShow;
 
-	if (campaignID == 0) return 1;
+static AsyncStrategicMapShow asyncStrategicMapShow;
+
+void async_GUI_Strategic_Map_ShowInner3Open() {
+	GUI_StrategicMap_DrawText(String_Get_ByIndex(STR_THAT_HAS_BECOME_DIVIDED));
+
+	g_timerTimeout = 60;
+}
+
+void async_GUI_Strategic_Map_ShowInner2Open() {
+	Sprites_LoadImage("DUNEMAP.CPS", 3 , g_palette_998A);
+
+	GUI_StrategicMap_DrawText(String_Get_ByIndex(STR_TO_TAKE_CONTROL_OF_THE_LAND));
+
+	GUI_Screen_FadeIn2(8, 24, 304, 120, 2, 0, GUI_StrategicMap_FastForwardToggleWithESC() ? 0 : 1, false);
+
+	g_timerTimeout = 60;
+}
+
+void async_GUI_Strategic_Map_ShowInner1Open() {
+	Sprites_LoadImage("PLANET.CPS", 3, g_palette_998A);
+
+	GUI_StrategicMap_DrawText(String_Get_ByIndex(STR_THREE_HOUSES_HAVE_COME_TO_DUNE));
+
+	GUI_Screen_FadeIn2(8, 24, 304, 120, 2, 0, 0, false);
+
+	Input_History_Clear();
+
+	g_timerTimeout = 120;
+
+	Sprites_CPS_LoadRegionClick();
+}
+
+void async_GUI_Strategic_Map_ShowInnerCondition(bool *ref) {
+	*ref = g_timerTimeout != 0;
+}
+
+void async_GUI_Strategic_Map_ShowInnerLoop() {
+	sleepIdle();
+}
+
+void async_GUI_Strategic_Map_ShowInnerOpen() {
+	uint16 x;
+	uint16 y;
+
+	if (asyncStrategicMapShow.campaignID == 0) {
+	/*	return 1;*/
+		abort();
+		/* ???*/
+	}
 
 	Timer_Sleep(10);
 	Music_Play(0x1D);
 
-	memset(palette, 0, 256 * 3);
+	memset(asyncStrategicMapShow.palette, 0, 256 * 3);
 
-	previousCampaignID = campaignID - (win ? 1 : 0);
-	oldScreenID = GFX_Screen_SetActive(4);
+	asyncStrategicMapShow.previousCampaignID = asyncStrategicMapShow.campaignID - (asyncStrategicMapShow.win ? 1 : 0);
+	asyncStrategicMapShow.oldScreenID = GFX_Screen_SetActive(4);
 
-	GUI_SetPaletteAnimated(palette, 15);
+	GUI_SetPaletteAnimated(asyncStrategicMapShow.palette, 15);
 
 	Mouse_SetRegion(8, 24, 311, 143);
 
@@ -3261,7 +3422,7 @@ uint16 GUI_StrategicMap_Show(uint16 campaignID, bool win)
 			break;
 	}
 
-	memcpy(loc316, g_palette1 + 251 * 3, 12);
+	memcpy(asyncStrategicMapShow.loc316, g_palette1 + 251 * 3, 12);
 	memcpy(s_var_81BA, g_palette1 + (144 + (g_playerHouseID * 16)) * 3, 4 * 3);
 	memcpy(s_var_81BA + 4 * 3, s_var_81BA, 4 * 3);
 
@@ -3289,47 +3450,32 @@ uint16 GUI_StrategicMap_Show(uint16 campaignID, bool win)
 
 	s_strategicMapFastForward = false;
 
-	if (win && campaignID == 1) {
-		Sprites_LoadImage("PLANET.CPS", 3, g_palette_998A);
+	if (asyncStrategicMapShow.win && asyncStrategicMapShow.campaignID == 1) {
+		Async_InvokeInLoop(async_GUI_Strategic_Map_ShowInner3Open,
+						async_GUI_Strategic_Map_ShowInnerCondition,
+						async_GUI_Strategic_Map_ShowInnerLoop,
+						async_noop);
 
-		GUI_StrategicMap_DrawText(String_Get_ByIndex(STR_THREE_HOUSES_HAVE_COME_TO_DUNE));
+		Async_InvokeInLoop(async_GUI_Strategic_Map_ShowInner2Open,
+				async_GUI_Strategic_Map_ShowInnerCondition,
+				async_GUI_Strategic_Map_ShowInnerLoop,
+				async_noop);
 
-		GUI_Screen_FadeIn2(8, 24, 304, 120, 2, 0, 0, false);
-
-		Input_History_Clear();
-
-		g_timerTimeout = 120;
-
-		Sprites_CPS_LoadRegionClick();
-
-		while (g_timerTimeout != 0) {
-			if (GUI_StrategicMap_FastForwardToggleWithESC()) break;
-			sleepIdle();
-		}
-
-		Sprites_LoadImage("DUNEMAP.CPS", 3 , g_palette_998A);
-
-		GUI_StrategicMap_DrawText(String_Get_ByIndex(STR_TO_TAKE_CONTROL_OF_THE_LAND));
-
-		GUI_Screen_FadeIn2(8, 24, 304, 120, 2, 0, GUI_StrategicMap_FastForwardToggleWithESC() ? 0 : 1, false);
-
-		g_timerTimeout = 60;
-
-		while (g_timerTimeout != 0) {
-			if (GUI_StrategicMap_FastForwardToggleWithESC()) break;
-			sleepIdle();
-		}
-
-		GUI_StrategicMap_DrawText(String_Get_ByIndex(STR_THAT_HAS_BECOME_DIVIDED));
+		Async_InvokeInLoop(async_GUI_Strategic_Map_ShowInner1Open,
+				async_GUI_Strategic_Map_ShowInnerCondition,
+				async_GUI_Strategic_Map_ShowInnerLoop,
+				async_noop);
 	} else {
 		Sprites_CPS_LoadRegionClick();
 	}
+}
 
+void async_GUI_Strategic_Map_ShowInnerClose() {
 	Sprites_LoadImage("DUNERGN.CPS", 3, g_palette_998A);
 
 	GFX_Screen_SetActive(2);
 
-	GUI_StrategicMap_PrepareRegions(previousCampaignID);
+	GUI_StrategicMap_PrepareRegions(asyncStrategicMapShow.previousCampaignID);
 
 	if (GUI_StrategicMap_FastForwardToggleWithESC()) {
 		GUI_Screen_Copy(1, 24, 1, 24, 38, 120, 2, 0);
@@ -3339,29 +3485,41 @@ uint16 GUI_StrategicMap_Show(uint16 campaignID, bool win)
 
 	GUI_Screen_Copy(0, 0, 0, 0, SCREEN_WIDTH / 8, SCREEN_HEIGHT, 0, 2);
 
-	if (campaignID != previousCampaignID) GUI_StrategicMap_ShowProgression(campaignID);
+	if (asyncStrategicMapShow.campaignID != asyncStrategicMapShow.previousCampaignID) {
+		GUI_StrategicMap_ShowProgression(asyncStrategicMapShow.campaignID);
+	}
 
 	GUI_Mouse_Show_Safe();
 
-	if (*g_regions >= campaignID) {
+	if (*g_regions >= asyncStrategicMapShow.campaignID) {
 		GUI_StrategicMap_DrawText(String_Get_ByIndex(STR_SELECT_YOUR_NEXT_REGION));
 
-		scenarioID = GUI_StrategicMap_ScenarioSelection(campaignID);
+		Async_GUI_StrategicMap_ScenarioSelection(asyncStrategicMapShow.campaignID);
+		Async_Storage_uint16(&asyncStrategicMapShow.scenarioID);
 	} else {
-		scenarioID = 0;
+		asyncStrategicMapShow.scenarioID = 0;
 	}
+}
 
+void async_GUI_Strategic_Map_ShowOpen() {
+	Async_InvokeInLoop(async_GUI_Strategic_Map_ShowInnerOpen,
+			async_false,
+			async_noop,
+			async_GUI_Strategic_Map_ShowInnerClose);
+}
+
+void async_GUI_StrategicMap_ShowClose() {
 	Driver_Music_FadeOut();
 
-	GFX_Screen_SetActive(oldScreenID);
+	GFX_Screen_SetActive(asyncStrategicMapShow.oldScreenID);
 
 	Mouse_SetRegion(0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1);
 
 	Input_History_Clear();
 
-	memcpy(g_palette1 + 251 * 3, loc316, 12);
+	memcpy(g_palette1 + 251 * 3, asyncStrategicMapShow.loc316, 12);
 
-	GUI_SetPaletteAnimated(palette, 15);
+	GUI_SetPaletteAnimated(asyncStrategicMapShow.palette, 15);
 
 	GUI_Mouse_Hide_Safe();
 	GUI_ClearScreen(0);
@@ -3369,7 +3527,19 @@ uint16 GUI_StrategicMap_Show(uint16 campaignID, bool win)
 
 	GFX_SetPalette(g_palette1);
 
-	return scenarioID;
+	Async_StorageSet_uint16(asyncStrategicMapShow.scenarioID);
+}
+
+void Async_GUI_StrategicMap_Show(uint16 campaignID, bool win)
+{
+	asyncStrategicMapShow.campaignID = campaignID;
+	asyncStrategicMapShow.win = win;
+
+	Async_InvokeInLoop(
+			async_GUI_Strategic_Map_ShowOpen,
+			async_false,
+			async_noop,
+			async_GUI_StrategicMap_ShowClose);
 }
 
 /**
@@ -3768,7 +3938,7 @@ void GUI_Screen_FadeIn2(int16 x, int16 y, int16 width, int16 height, uint16 scre
 
 	for (j = 0; j < height; j++) {
 		uint16 j2 = j;
-		uint32 tick;
+		/* uint32 tick; */
 
 		for (i = 0; i < width; i++) {
 			uint8 colour;
@@ -3788,9 +3958,10 @@ void GUI_Screen_FadeIn2(int16 x, int16 y, int16 width, int16 height, uint16 scre
 			GFX_PutPixel(curX, curY, colour);
 		}
 
-		tick = g_timerSleep + delay;
-
-		while (g_timerSleep < tick) sleepIdle();
+		/*
+		 * tick = g_timerSleep + delay;
+		   while (g_timerSleep < tick) sleepIdle();
+		 */
 	}
 
 	if (screenDst == 0) {
@@ -3806,6 +3977,8 @@ void GUI_Screen_FadeIn2(int16 x, int16 y, int16 width, int16 height, uint16 scre
  */
 void GUI_Mouse_Show()
 {
+#if EMSCRIPTEN
+#else
 	int left, top;
 
 	if (g_var_7097 == 1) return;
@@ -3828,6 +4001,7 @@ void GUI_Mouse_Show()
 	}
 
 	GUI_DrawSprite(0, g_mouseSprite, left, top, 0, 0);
+#endif
 }
 
 /**
@@ -3836,6 +4010,8 @@ void GUI_Mouse_Show()
  */
 void GUI_Mouse_Hide()
 {
+#if EMSCRIPTEN
+#else
 	if (g_var_7097 == 1) return;
 
 	if (g_mouseHiddenDepth == 0 && s_mouseSpriteWidth != 0) {
@@ -3847,6 +4023,7 @@ void GUI_Mouse_Hide()
 	}
 
 	g_mouseHiddenDepth++;
+#endif
 }
 
 /**
@@ -3855,7 +4032,9 @@ void GUI_Mouse_Hide()
  */
 void GUI_Mouse_Hide_Safe()
 {
-	while (g_mouseLock != 0) msleep(0);
+#if EMSCRIPTEN
+#else
+	while (g_mouseLock != 0) sleepIdle();
 	g_mouseLock++;
 
 	if (g_var_7097 == 1) {
@@ -3866,6 +4045,7 @@ void GUI_Mouse_Hide_Safe()
 	GUI_Mouse_Hide();
 
 	g_mouseLock--;
+#endif
 }
 
 /**
@@ -3874,7 +4054,9 @@ void GUI_Mouse_Hide_Safe()
  */
 void GUI_Mouse_Show_Safe()
 {
-	while (g_mouseLock != 0) msleep(0);
+#if EMSCRIPTEN
+#else
+	while (g_mouseLock != 0) sleepIdle();
 	g_mouseLock++;
 
 	if (g_var_7097 == 1) {
@@ -3885,6 +4067,7 @@ void GUI_Mouse_Show_Safe()
 	GUI_Mouse_Show();
 
 	g_mouseLock--;
+#endif
 }
 
 /**
@@ -3893,9 +4076,11 @@ void GUI_Mouse_Show_Safe()
  */
 void GUI_Mouse_Show_InRegion()
 {
+#if EMSCRIPTEN
+#else
 	uint8 counter;
 
-	while (g_mouseLock != 0) msleep(0);
+	while (g_mouseLock != 0) sleepIdle();
 	g_mouseLock++;
 
 	counter = g_regionFlags & 0xFF;
@@ -3911,6 +4096,7 @@ void GUI_Mouse_Show_InRegion()
 
 	g_regionFlags = 0;
 	g_mouseLock--;
+#endif
 }
 
 /**
@@ -3920,6 +4106,8 @@ void GUI_Mouse_Show_InRegion()
  */
 void GUI_Mouse_Hide_InRegion(uint16 left, uint16 top, uint16 right, uint16 bottom)
 {
+#if EMSCRIPTEN
+#else
 	int minx, miny;
 	int maxx, maxy;
 
@@ -3935,7 +4123,7 @@ void GUI_Mouse_Hide_InRegion(uint16 left, uint16 top, uint16 right, uint16 botto
 	maxy = bottom + g_mouseSpriteHotspotY;
 	if (maxy > SCREEN_HEIGHT - 1) maxy = SCREEN_HEIGHT - 1;
 
-	while (g_mouseLock != 0) msleep(0);
+	while (g_mouseLock != 0) sleepIdle();
 	g_mouseLock++;
 
 	if (g_regionFlags == 0) {
@@ -3964,6 +4152,7 @@ void GUI_Mouse_Hide_InRegion(uint16 left, uint16 top, uint16 right, uint16 botto
 	g_regionFlags = (g_regionFlags & 0xFF00) | (((g_regionFlags & 0x00FF) + 1) & 0xFF);
 
 	g_mouseLock--;
+#endif
 }
 
 /**
@@ -3972,7 +4161,10 @@ void GUI_Mouse_Hide_InRegion(uint16 left, uint16 top, uint16 right, uint16 botto
  */
 void GUI_Mouse_Show_InWidget()
 {
+#if EMSCRIPTEN
+#else
 	GUI_Mouse_Show_InRegion();
+#endif
 }
 
 /**
@@ -3983,6 +4175,8 @@ void GUI_Mouse_Show_InWidget()
  */
 void GUI_Mouse_Hide_InWidget(uint16 widgetIndex)
 {
+#if EMSCRIPTEN
+#else
 	uint16 left, top;
 	uint16 width, height;
 
@@ -3992,6 +4186,7 @@ void GUI_Mouse_Hide_InWidget(uint16 widgetIndex)
 	height = g_widgetProperties[widgetIndex].height;
 
 	GUI_Mouse_Hide_InRegion(left, top, left + width - 1, top + height - 1);
+#endif
 }
 
 /**
@@ -4057,7 +4252,9 @@ void GUI_DrawBlockedRectangle(int16 left, int16 top, int16 width, int16 height, 
  */
 void GUI_Mouse_SetPosition(uint16 x, uint16 y)
 {
-	while (g_mouseLock != 0) msleep(0);
+#if EMSCRIPTEN
+#else
+	while (g_mouseLock != 0) sleepIdle();
 	g_mouseLock++;
 
 	if (x < g_mouseRegionLeft)   x = g_mouseRegionLeft;
@@ -4076,6 +4273,7 @@ void GUI_Mouse_SetPosition(uint16 x, uint16 y)
 	}
 
 	g_mouseLock--;
+#endif
 }
 
 /**

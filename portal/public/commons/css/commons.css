@@ -1,0 +1,92 @@
+*::selection {
+    background:transparent;
+}
+
+*::-moz-selection {
+    background:transparent;
+}
+
+*::-webkit-selection {
+    background:transparent;
+}
+
+html {
+  height: 100%;
+}
+
+body {
+  height: 100%;
+  font: 14px/22px Helvetica, Arial, sans-serif;
+  background: #000 url("/img/dune.png") no-repeat right bottom;
+}
+
+form, .games {
+  -webkit-border-radius: 5px;
+
+  border-radius: 5px;
+  border: 2px solid rgba(180, 180, 235, 1);
+  
+  background: rgba(188, 169, 137, 0.9);
+
+  margin: 30px auto;
+  padding: 15px 30px;
+  width: 748px;
+}
+
+input[type="text"],
+input[type="password"] {
+	-webkit-border-radius: 5px;
+	border-radius: 5px;
+	padding: 5px;
+	border: 1px solid #ccc;
+}
+
+button,
+input[type="button"],
+input[type="reset"],
+input[type="submit"] {
+  cursor: pointer;
+  /* 1 */
+  -webkit-appearance: button;
+  /* 2 */
+  *overflow: visible;
+  /* 3 */
+}
+
+.w120 {
+  width: 120px;
+  display: inline-block;
+}
+
+.w350 {
+  width: 350px;
+  display: inline-block;
+}
+
+.padding {
+  padding-left: 20px;
+}
+
+.error {
+  background: rgb(232, 202, 202);
+  border: 1px solid gray;
+  padding: 5px;
+  font-weight: bold;
+}
+
+
+.dune2 {
+  background: url('/commons/images/dune2.png') no-repeat left 5px;
+  min-height: 120px;
+  padding-left: 200px;
+  margin-left: 20px;
+  margin-bottom: 30px;
+}
+
+.ttd {
+  background: url('/commons/images/ttd.png') no-repeat left top;
+  min-height: 120px;
+  padding-left: 200px;
+  margin-left: 20px;
+  margin-bottom: 30px;
+}
